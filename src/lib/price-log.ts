@@ -12,14 +12,14 @@ export type TrackedItem = {
   unit: Localized;
   group: string;
   measure: MeasureKind;
-  defaultUnit: UnitCode;
+  defaultUnit: UnitCode | "";
   custom?: boolean;
 };
 
 export type LogLine = {
   price: number;
   qty?: number;
-  unit?: UnitCode;
+  unit?: UnitCode | "";
   note?: string;
 };
 
@@ -30,7 +30,7 @@ export type PriceEntry = {
   date: string;
   price: number;
   qty?: number;
-  unit?: UnitCode;
+  unit?: UnitCode | "";
   note?: string;
   tripNote?: string;
 };
@@ -51,12 +51,12 @@ function canUseStorage() {
 }
 
 function hydrateItem(item: TrackedItem): TrackedItem {
-  const defaultUnit = item.defaultUnit || "catty";
+  const defaultUnit = item.defaultUnit ?? "";
   return {
     ...item,
-    measure: item.measure || "weight",
+    measure: item.measure || "count",
     defaultUnit,
-    unit: item.unit || UNIT_LABEL[defaultUnit],
+    unit: item.unit || (defaultUnit ? UNIT_LABEL[defaultUnit] : { en: "pack", zh: "包" }),
   };
 }
 
@@ -86,27 +86,48 @@ export function savePriceLog(state: PriceLogState) {
 }
 
 export function allTrackedItems(state: PriceLogState): TrackedItem[] {
-  const extras = state.extras.filter((item) => !STAPLES.some((s) => s.id === item.id));
-  return [...STAPLES, ...extras];
+  const overrides = new Map(state.extras.map((item) => [item.id, item]));
+  const staples = STAPLES.map((staple) => {
+    const extra = overrides.get(staple.id);
+    return extra ? { ...staple, ...extra, id: staple.id, custom: false } : staple;
+  });
+  const extras = state.extras.filter((item) => !STAPLES.some((staple) => staple.id === item.id));
+  return [...staples, ...extras];
 }
 
 export function addCustomItem(
   state: PriceLogState,
   name: string,
   measure: MeasureKind,
-  defaultUnit: UnitCode,
+  defaultUnit: UnitCode | "",
   group = "produce",
 ): PriceLogState {
   const item: TrackedItem = {
     id: `custom-${uid()}`,
     name: { en: name, zh: name },
-    unit: UNIT_LABEL[defaultUnit],
+    unit: defaultUnit ? UNIT_LABEL[defaultUnit] : { en: "pack", zh: "包" },
     group,
     measure,
     defaultUnit,
     custom: true,
   };
   return { ...state, extras: [...state.extras, item] };
+}
+
+export function upsertItem(state: PriceLogState, item: TrackedItem): PriceLogState {
+  const extras = state.extras.filter((row) => row.id !== item.id);
+  return { ...state, extras: [...extras, item] };
+}
+
+export function updateEntry(
+  state: PriceLogState,
+  entryId: string,
+  patch: Partial<PriceEntry>,
+): PriceLogState {
+  return {
+    ...state,
+    entries: state.entries.map((entry) => (entry.id === entryId ? { ...entry, ...patch } : entry)),
+  };
 }
 
 export function removeCustomItem(state: PriceLogState, itemId: string): PriceLogState {
@@ -142,8 +163,8 @@ export function logTrip(
       placeId,
       date,
       price: line.price,
-      qty: line.qty && line.qty > 0 ? line.qty : undefined,
-      unit: line.unit,
+      qty: line.qty && line.qty > 0 ? line.qty : 1,
+      unit: line.unit || undefined,
       note: line.note?.trim() || undefined,
       tripNote: shared,
     });

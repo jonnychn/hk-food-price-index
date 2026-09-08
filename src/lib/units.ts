@@ -33,6 +33,21 @@ export const UNITS_BY_KIND: Record<MeasureKind, UnitCode[]> = {
   count: ["each", "dozen", "pack"],
 };
 
+export const ALL_UNITS: UnitCode[] = [
+  "pack",
+  "each",
+  "dozen",
+  "catty",
+  "g",
+  "kg",
+  "lb",
+  "oz",
+  "ml",
+  "l",
+];
+
+export type UnitValue = UnitCode | "";
+
 const G_PER: Record<Extract<UnitCode, "g" | "kg" | "lb" | "oz" | "catty">, number> = {
   g: 1,
   kg: 1000,
@@ -58,7 +73,8 @@ export function unitKind(unit: UnitCode): MeasureKind {
   return "weight";
 }
 
-export function unitLabel(unit: UnitCode, lang: Lang) {
+export function unitLabel(unit: UnitCode | "" | undefined, lang: Lang) {
+  if (!unit) return lang === "zh" ? "無重量" : "no weight";
   return lang === "zh" ? UNIT_LABEL[unit].zh : UNIT_LABEL[unit].en;
 }
 
@@ -76,14 +92,24 @@ export type UnitPrice = {
 export function unitPrice(
   total: number,
   qty: number | undefined,
-  unit: UnitCode | undefined,
+  unit: UnitCode | "" | undefined,
   lang: Lang,
 ): UnitPrice | null {
-  if (!qty || qty <= 0 || !unit || !Number.isFinite(total) || total <= 0) return null;
+  if (!Number.isFinite(total) || total <= 0) return null;
+  const amount = qty && qty > 0 ? qty : 1;
+  if (!unit) {
+    const perPack = total / amount;
+    return {
+      kind: "count",
+      perPiece: perPack,
+      label: lang === "zh" ? "/包" : "/pack",
+      value: perPack,
+    };
+  }
   const kind = unitKind(unit);
 
   if (kind === "weight" && unit in G_PER) {
-    const grams = qty * G_PER[unit as keyof typeof G_PER];
+    const grams = amount * G_PER[unit as keyof typeof G_PER];
     if (grams <= 0) return null;
     const perLb = (total / grams) * G_PER.lb;
     return {
@@ -97,7 +123,7 @@ export function unitPrice(
   }
 
   if (kind === "volume" && unit in ML_PER) {
-    const ml = qty * ML_PER[unit as keyof typeof ML_PER];
+    const ml = amount * ML_PER[unit as keyof typeof ML_PER];
     if (ml <= 0) return null;
     const per100ml = (total / ml) * 100;
     return {
@@ -108,7 +134,7 @@ export function unitPrice(
     };
   }
 
-  const pieces = qty * PIECES_PER[unit as keyof typeof PIECES_PER];
+  const pieces = amount * PIECES_PER[unit as keyof typeof PIECES_PER];
   if (!pieces || pieces <= 0) return null;
   const perPiece = total / pieces;
   return {
@@ -136,7 +162,7 @@ export function formatUnitPrice(up: UnitPrice, _style: "short" | "full" = "short
   return `${money(up.value)}${up.label}`;
 }
 
-export function looksLikeGrams(qty: number, unit: UnitCode) {
+export function looksLikeGrams(qty: number, unit: UnitCode | "" | undefined) {
   return unit === "catty" && qty >= 20;
 }
 
