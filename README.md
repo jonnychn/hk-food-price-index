@@ -2,7 +2,8 @@
 
 Search, compare, and bookmark supermarket prices from the Hong Kong Consumer Council **Online Price Watch** open data.
 
-Live data: [data.gov.hk package `cc-pricewatch-pricewatch`](https://data.gov.hk/en-data/dataset/cc-pricewatch-pricewatch)
+- App: [https://foodpriceindex.vercel.app](https://foodpriceindex.vercel.app)
+- Data: [data.gov.hk package `cc-pricewatch-pricewatch`](https://data.gov.hk/en-data/dataset/cc-pricewatch-pricewatch)
 
 ## Features
 
