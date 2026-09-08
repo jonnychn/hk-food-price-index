@@ -1,36 +1,34 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HK Food Price Index
 
-## Getting Started
+Search, compare, and bookmark supermarket prices from the Hong Kong Consumer Council **Online Price Watch** open data.
 
-First, run the development server:
+Live data: [data.gov.hk package `cc-pricewatch-pricewatch`](https://data.gov.hk/en-data/dataset/cc-pricewatch-pricewatch)
+
+## Features
+
+- Daily prices across Wellcome, PARKnSHOP, Market Place, AEON, Watsons, Mannings, and more
+- Category navigation (fresh & staples, dairy, bakery, drinks, …)
+- Search by brand, product, or category (English / 繁體)
+- Food price index trendline from data.gov.hk historical archives
+- Category averages and “who is cheapest most often”
+- Bookmark products into folders, with a personal price history on repeat visits
+- Desktop sidebar + mobile category chips and bottom nav
+
+## Data
+
+- Current snapshot: `https://online-price-watch.consumer.org.hk/opw/opendata/pricewatch.json`
+- Package metadata: `https://data.gov.hk/en-data/api/3/action/package_show?id=cc-pricewatch-pricewatch`
+- Historical weekly index: data.gov.hk historical archive of the English CSV
+
+Intellectual property of the dataset belongs to the Consumer Council. This app is an independent viewer.
+
+## Develop
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deploy
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Pushes to `main` deploy on Vercel.
