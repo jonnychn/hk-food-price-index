@@ -85,14 +85,14 @@ export function unitPrice(
   if (kind === "weight" && unit in G_PER) {
     const grams = qty * G_PER[unit as keyof typeof G_PER];
     if (grams <= 0) return null;
-    const per100g = (total / grams) * 100;
+    const perLb = (total / grams) * G_PER.lb;
     return {
       kind,
-      per100g,
+      per100g: (total / grams) * 100,
       perCatty: (total / grams) * G_PER.catty,
-      perLb: (total / grams) * G_PER.lb,
-      label: lang === "zh" ? "/100克" : "/100g",
-      value: per100g,
+      perLb,
+      label: lang === "zh" ? "/磅" : "/lb",
+      value: perLb,
     };
   }
 
@@ -123,12 +123,9 @@ function money(n: number) {
   return `$${n.toFixed(2)}`;
 }
 
-export function formatUnitPrice(up: UnitPrice, style: "short" | "full" = "short") {
-  if (up.kind === "weight" && up.perCatty != null && up.perLb != null && up.per100g != null) {
-    if (style === "short") {
-      return `${money(up.perCatty)}/斤 · ${money(up.perLb)}/lb`;
-    }
-    return `${money(up.perCatty)}/斤 · ${money(up.perLb)}/lb · ${money(up.per100g)}/100g`;
+export function formatUnitPrice(up: UnitPrice, _style: "short" | "full" = "short") {
+  if (up.kind === "weight" && up.perLb != null) {
+    return `${money(up.perLb)}/lb`;
   }
   if (up.kind === "volume" && up.per100ml != null) {
     return `${money(up.per100ml)}/100ml`;
@@ -137,6 +134,10 @@ export function formatUnitPrice(up: UnitPrice, style: "short" | "full" = "short"
     return `${money(up.perPiece)}${up.label}`;
   }
   return `${money(up.value)}${up.label}`;
+}
+
+export function looksLikeGrams(qty: number, unit: UnitCode) {
+  return unit === "catty" && qty >= 20;
 }
 
 export const CATTY_GRAMS = G_PER.catty;

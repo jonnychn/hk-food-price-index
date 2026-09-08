@@ -50,11 +50,11 @@ import { useSpeech } from "@/hooks/use-speech";
 import { LOG_PLACES, PLACE_COLORS, STAPLE_GROUPS } from "@/lib/staples";
 import type { Lang } from "@/lib/types";
 import {
-  CATTY_GRAMS,
   CATTY_IN_LB,
-  LB_IN_CATTY,
+  LB_GRAMS,
   UNITS_BY_KIND,
   formatUnitPrice,
+  looksLikeGrams,
   unitLabel,
   unitPrice,
   type UnitCode,
@@ -277,14 +277,7 @@ function PriceChip({
       <div className="font-mono text-sm tabular-nums">{entry ? hkd(entry.price) : "—"}</div>
       {up ? (
         <div className="text-[10px] leading-tight text-muted-foreground">
-          {up.kind === "weight" && up.perCatty != null && up.perLb != null ? (
-            <>
-              <div>{`$${up.perCatty.toFixed(2)}/斤`}</div>
-              <div>{`$${up.perLb.toFixed(2)}/lb`}</div>
-            </>
-          ) : (
-            formatUnitPrice(up, "short")
-          )}
+          {formatUnitPrice(up, "short")}
         </div>
       ) : (
         <div className="text-[10px] text-muted-foreground">
@@ -369,8 +362,8 @@ function LogShopSheet({
               <SheetTitle>{lang === "zh" ? "記錄今次購物" : "Log this shop"}</SheetTitle>
               <SheetDescription>
                 {lang === "zh"
-                  ? "總價必填。重量請填數量＋斤或磅，系統會同時顯示每斤和每磅單價。容量用毫升。"
-                  : "Total paid is required. For meat and veg, add qty in 斤 or lb — you’ll see unit price per catty and per lb. Liquids use ml."}
+                  ? "總價＋重量。克、斤、磅都可以，比較一律用每磅（$/lb）。包裝寫 400g 就選克。"
+                  : "Total $ + weight. Use g, 斤, or lb — comparison is always $/lb. If the pack says 400g, set the unit to g."}
               </SheetDescription>
             </SheetHeader>
 
@@ -452,16 +445,25 @@ function LogShopSheet({
                     Number.isFinite(priceN) && Number.isFinite(qtyN)
                       ? unitPrice(priceN, qtyN, row.unit, lang)
                       : null;
+                  const gramHint =
+                    Number.isFinite(qtyN) && looksLikeGrams(qtyN, row.unit);
                   return (
                     <div key={item.id} className="rounded-xl border border-border px-3 py-3">
                       <div className="flex items-baseline justify-between gap-2">
                         <div className="min-w-0 text-sm font-medium">{loc(lang, item.name)}</div>
                         {up ? (
-                          <div className="shrink-0 text-right font-mono text-[11px] leading-snug text-muted-foreground">
+                          <div className="shrink-0 text-right font-mono text-sm font-medium tabular-nums text-foreground">
                             {formatUnitPrice(up, "full")}
                           </div>
                         ) : null}
                       </div>
+                      {gramHint ? (
+                        <p className="mt-1 text-[11px] text-amber-800">
+                          {lang === "zh"
+                            ? `${qtyN} 看起來像克，不是斤。請把單位改成「克」。`
+                            : `${qtyN} looks like grams, not catties. Switch the unit to g.`}
+                        </p>
+                      ) : null}
                       <div className="mt-2 grid grid-cols-3 gap-2">
                         <Input
                           inputMode="decimal"
@@ -569,7 +571,8 @@ function ItemHistorySheet({
     return dates.map((d) => {
       const row: Record<string, string | number> = { date: formatDay(d, lang) };
       for (const entry of history.filter((e) => e.date === d)) {
-        row[entry.placeId] = entry.price;
+        const up = unitPrice(entry.price, entry.qty, entry.unit, lang);
+        row[entry.placeId] = up?.kind === "weight" && up.perLb != null ? up.perLb : entry.price;
       }
       return row;
     });
@@ -589,7 +592,14 @@ function ItemHistorySheet({
             <div className="min-h-0 flex-1 overflow-y-auto pt-5 pb-4 pl-5 pr-14 sm:pl-6 sm:pr-14">
               <SheetHeader className="gap-1 p-0 text-left">
                 <SheetTitle>{loc(lang, item.name)}</SheetTitle>
-                <SheetDescription>{loc(lang, item.unit)}</SheetDescription>
+                <SheetDescription>
+                  {loc(lang, item.unit)}
+                  {item.measure === "weight"
+                    ? lang === "zh"
+                      ? " · 單價以每磅計算"
+                      : " · unit price in $/lb"
+                    : ""}
+                </SheetDescription>
               </SheetHeader>
 
               <section className="mt-5">
@@ -880,40 +890,39 @@ function AddItemDialog({
 }
 
 function ConversionGuide({ lang }: { lang: Lang }) {
-  const exampleCatty = 12;
-  const examplePerLb = exampleCatty / CATTY_IN_LB;
-  const examplePer100g = (exampleCatty / CATTY_GRAMS) * 100;
+  const g400 = unitPrice(40, 400, "g", lang);
+  const lb15 = unitPrice(35, 1.5, "lb", lang);
+  const g304 = unitPrice(12.1, 304, "g", lang);
   return (
     <Card size="sm">
       <CardHeader>
         <CardTitle className="text-sm">
-          {lang === "zh" ? "斤 ↔ 磅，單價怎麼看" : "Catty ↔ lb, and unit price"}
+          {lang === "zh" ? "重量一律換成每磅（$/lb）" : "Weight is always compared in $/lb"}
         </CardTitle>
         <CardDescription>
           {lang === "zh"
-            ? "香港1斤 = 1.33磅（4/3磅）= 605克。街市論斤、超市論磅／克，先換成同一單位再比。"
-            : "In Hong Kong 1 catty (斤) = 1.33 lb (exactly 4/3 lb) = 605 g. Wet markets sell by 斤; Market Place often uses lb or g. Convert first, then compare."}
+            ? `輸入克、斤或磅都可以。香港 1斤 = ${CATTY_IN_LB.toFixed(2)} lb。包裝寫 400g 就選「克」。`
+            : `Type g, 斤, or lb. Hong Kong 1 catty (斤) = ${CATTY_IN_LB.toFixed(2)} lb. If the bag says 400g, choose g.`}
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
+      <CardContent className="grid gap-2 text-sm sm:grid-cols-3">
         <div className="rounded-lg bg-muted/60 px-3 py-2">
+          <div className="text-[11px] text-muted-foreground">400g · $40</div>
+          <div className="mt-1 font-mono text-sm tabular-nums">{g400 ? formatUnitPrice(g400) : ""}</div>
           <div className="text-[11px] text-muted-foreground">
-            {lang === "zh" ? "換算" : "Convert"}
-          </div>
-          <div className="mt-1 font-mono text-xs leading-relaxed tabular-nums">
-            1 斤 = {CATTY_IN_LB.toFixed(2)} lb = 605 g
-            <br />
-            1 lb = {LB_IN_CATTY.toFixed(2)} 斤 = 454 g
+            400g = {(400 / LB_GRAMS).toFixed(2)} lb
           </div>
         </div>
         <div className="rounded-lg bg-muted/60 px-3 py-2">
+          <div className="text-[11px] text-muted-foreground">1.5 lb · $35</div>
+          <div className="mt-1 font-mono text-sm tabular-nums">{lb15 ? formatUnitPrice(lb15) : ""}</div>
+          <div className="text-[11px] text-muted-foreground">$35 ÷ 1.5</div>
+        </div>
+        <div className="rounded-lg bg-muted/60 px-3 py-2">
+          <div className="text-[11px] text-muted-foreground">304g · $12.10</div>
+          <div className="mt-1 font-mono text-sm tabular-nums">{g304 ? formatUnitPrice(g304) : ""}</div>
           <div className="text-[11px] text-muted-foreground">
-            {lang === "zh" ? "例子：街市 $12 / 斤" : "Example: wet market $12 / 斤"}
-          </div>
-          <div className="mt-1 font-mono text-xs leading-relaxed tabular-nums">
-            = ${examplePerLb.toFixed(2)} / lb
-            <br />
-            = ${examplePer100g.toFixed(2)} / 100g
+            304g = {(304 / LB_GRAMS).toFixed(2)} lb
           </div>
         </div>
       </CardContent>
