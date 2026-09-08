@@ -119,6 +119,27 @@ export function unitPrice(
   };
 }
 
-export function formatUnitPrice(up: UnitPrice) {
-  return `$${up.value.toFixed(2)}${up.label}`;
+function money(n: number) {
+  return `$${n.toFixed(2)}`;
 }
+
+export function formatUnitPrice(up: UnitPrice, style: "short" | "full" = "short") {
+  if (up.kind === "weight" && up.perCatty != null && up.perLb != null && up.per100g != null) {
+    if (style === "short") {
+      return `${money(up.perCatty)}/斤 · ${money(up.perLb)}/lb`;
+    }
+    return `${money(up.perCatty)}/斤 · ${money(up.perLb)}/lb · ${money(up.per100g)}/100g`;
+  }
+  if (up.kind === "volume" && up.per100ml != null) {
+    return `${money(up.per100ml)}/100ml`;
+  }
+  if (up.perPiece != null) {
+    return `${money(up.perPiece)}${up.label}`;
+  }
+  return `${money(up.value)}${up.label}`;
+}
+
+export const CATTY_GRAMS = G_PER.catty;
+export const LB_GRAMS = G_PER.lb;
+export const CATTY_IN_LB = G_PER.catty / G_PER.lb;
+export const LB_IN_CATTY = G_PER.lb / G_PER.catty;

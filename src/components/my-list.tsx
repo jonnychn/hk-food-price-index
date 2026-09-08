@@ -50,6 +50,9 @@ import { useSpeech } from "@/hooks/use-speech";
 import { LOG_PLACES, PLACE_COLORS, STAPLE_GROUPS } from "@/lib/staples";
 import type { Lang } from "@/lib/types";
 import {
+  CATTY_GRAMS,
+  CATTY_IN_LB,
+  LB_IN_CATTY,
   UNITS_BY_KIND,
   formatUnitPrice,
   unitLabel,
@@ -107,6 +110,8 @@ export function MyList({
           </Button>
         </div>
       </div>
+
+      <ConversionGuide lang={lang} />
 
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -267,12 +272,25 @@ function PriceChip({
 }) {
   const up = entry ? unitPrice(entry.price, entry.qty, entry.unit, lang) : null;
   return (
-    <div className={`min-w-[4.8rem] rounded-lg px-2 py-1.5 text-right ${emphasize ? "bg-primary/10" : "bg-muted/70"}`}>
+    <div className={`min-w-[5.6rem] rounded-lg px-2 py-1.5 text-right ${emphasize ? "bg-primary/10" : "bg-muted/70"}`}>
       <div className="text-[10px] tracking-wide text-muted-foreground uppercase">{label}</div>
       <div className="font-mono text-sm tabular-nums">{entry ? hkd(entry.price) : "—"}</div>
-      <div className="text-[10px] text-muted-foreground">
-        {up ? formatUnitPrice(up) : entry ? formatDay(entry.date, lang) : lang === "zh" ? "未記" : "none"}
-      </div>
+      {up ? (
+        <div className="text-[10px] leading-tight text-muted-foreground">
+          {up.kind === "weight" && up.perCatty != null && up.perLb != null ? (
+            <>
+              <div>{`$${up.perCatty.toFixed(2)}/斤`}</div>
+              <div>{`$${up.perLb.toFixed(2)}/lb`}</div>
+            </>
+          ) : (
+            formatUnitPrice(up, "short")
+          )}
+        </div>
+      ) : (
+        <div className="text-[10px] text-muted-foreground">
+          {entry ? formatDay(entry.date, lang) : lang === "zh" ? "未記" : "none"}
+        </div>
+      )}
     </div>
   );
 }
@@ -351,8 +369,8 @@ function LogShopSheet({
               <SheetTitle>{lang === "zh" ? "記錄今次購物" : "Log this shop"}</SheetTitle>
               <SheetDescription>
                 {lang === "zh"
-                  ? "總價必填。數量＋單位可選，用來算每100克／100毫升／每件單價，方便街市斤數對超市包裝。"
-                  : "Total paid is enough. Add qty + unit to get a unit price (per 100g, 100ml, or piece) so a catty at the wet market compares with a supermarket pack."}
+                  ? "總價必填。重量請填數量＋斤或磅，系統會同時顯示每斤和每磅單價。容量用毫升。"
+                  : "Total paid is required. For meat and veg, add qty in 斤 or lb — you’ll see unit price per catty and per lb. Liquids use ml."}
               </SheetDescription>
             </SheetHeader>
 
@@ -439,8 +457,8 @@ function LogShopSheet({
                       <div className="flex items-baseline justify-between gap-2">
                         <div className="min-w-0 text-sm font-medium">{loc(lang, item.name)}</div>
                         {up ? (
-                          <div className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                            {formatUnitPrice(up)}
+                          <div className="shrink-0 text-right font-mono text-[11px] leading-snug text-muted-foreground">
+                            {formatUnitPrice(up, "full")}
                           </div>
                         ) : null}
                       </div>
@@ -727,7 +745,7 @@ function ItemHistorySheet({
                               {entry.qty && entry.unit
                                 ? ` · ${entry.qty} ${unitLabel(entry.unit, lang)}`
                                 : ""}
-                              {up ? ` · ${formatUnitPrice(up)}` : ""}
+                              {up ? ` · ${formatUnitPrice(up, "full")}` : ""}
                             </div>
                             {entry.note ? (
                               <div className="mt-1 text-xs text-pretty text-foreground/80">{entry.note}</div>
@@ -858,6 +876,48 @@ function AddItemDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ConversionGuide({ lang }: { lang: Lang }) {
+  const exampleCatty = 12;
+  const examplePerLb = exampleCatty / CATTY_IN_LB;
+  const examplePer100g = (exampleCatty / CATTY_GRAMS) * 100;
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle className="text-sm">
+          {lang === "zh" ? "斤 ↔ 磅，單價怎麼看" : "Catty ↔ lb, and unit price"}
+        </CardTitle>
+        <CardDescription>
+          {lang === "zh"
+            ? "香港1斤 = 1.33磅（4/3磅）= 605克。街市論斤、超市論磅／克，先換成同一單位再比。"
+            : "In Hong Kong 1 catty (斤) = 1.33 lb (exactly 4/3 lb) = 605 g. Wet markets sell by 斤; Market Place often uses lb or g. Convert first, then compare."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
+        <div className="rounded-lg bg-muted/60 px-3 py-2">
+          <div className="text-[11px] text-muted-foreground">
+            {lang === "zh" ? "換算" : "Convert"}
+          </div>
+          <div className="mt-1 font-mono text-xs leading-relaxed tabular-nums">
+            1 斤 = {CATTY_IN_LB.toFixed(2)} lb = 605 g
+            <br />
+            1 lb = {LB_IN_CATTY.toFixed(2)} 斤 = 454 g
+          </div>
+        </div>
+        <div className="rounded-lg bg-muted/60 px-3 py-2">
+          <div className="text-[11px] text-muted-foreground">
+            {lang === "zh" ? "例子：街市 $12 / 斤" : "Example: wet market $12 / 斤"}
+          </div>
+          <div className="mt-1 font-mono text-xs leading-relaxed tabular-nums">
+            = ${examplePerLb.toFixed(2)} / lb
+            <br />
+            = ${examplePer100g.toFixed(2)} / 100g
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
