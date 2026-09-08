@@ -48,5 +48,5 @@ export function formatDay(isoDate: string, lang: Lang) {
 }
 
 export function todayStamp() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Hong_Kong" });
 }

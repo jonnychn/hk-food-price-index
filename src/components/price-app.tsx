@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bookmark,
   BookmarkCheck,
+  ClipboardList,
   FolderPlus,
   MapPin,
   Search,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { CategoryBars, CheapestWins, IndexTrendChart } from "@/components/charts";
 import { CategoryChips, CategoryNav } from "@/components/category-nav";
+import { MyList } from "@/components/my-list";
 import { createFolderIdFromSave, ProductSheet } from "@/components/product-panel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -50,10 +52,11 @@ import {
   SUPERMARKET_ORDER,
   supermarketLabel,
 } from "@/lib/supermarkets";
+import { loadPriceLog, savePriceLog, type PriceLogState } from "@/lib/price-log";
 import type { BookmarkState, Catalog, Lang, Product, Trends } from "@/lib/types";
 
 type SortKey = "store" | "cheap" | "spread" | "offers" | "name";
-type View = "browse" | "saved";
+type View = "browse" | "list" | "saved";
 
 const PAGE_SIZE = 36;
 
@@ -74,6 +77,7 @@ export function PriceApp() {
   const [folderName, setFolderName] = useState("");
   const [preferredStore, setPreferredStore] = useState(DEFAULT_STORE);
   const [storeOnly, setStoreOnly] = useState(true);
+  const [priceLog, setPriceLog] = useState<PriceLogState | null>(null);
 
   useEffect(() => {
     setLang(loadLang());
@@ -82,6 +86,7 @@ export function PriceApp() {
     setHistory(loadHistory());
     setPreferredStore(loadStore());
     setStoreOnly(loadStoreOnly());
+    setPriceLog(loadPriceLog());
   }, []);
 
   useEffect(() => {
@@ -257,6 +262,7 @@ export function PriceApp() {
         : "Consumer Council Online Price Watch · search, compare, bookmark",
     search: lang === "zh" ? "搜尋品牌、貨品、類別…" : "Search brand, product, category…",
     browse: lang === "zh" ? "瀏覽" : "Browse",
+    list: lang === "zh" ? "清單" : "My list",
     saved: lang === "zh" ? "收藏" : "Saved",
   };
 
@@ -276,9 +282,13 @@ export function PriceApp() {
                 </div>
               </div>
             </div>
-            <div className="ml-auto hidden min-w-0 flex-1 md:block md:max-w-md">
-              <SearchBox query={query} setQuery={setQuery} placeholder={copy.search} />
-            </div>
+            {view === "browse" ? (
+              <div className="ml-auto hidden min-w-0 flex-1 md:block md:max-w-md">
+                <SearchBox query={query} setQuery={setQuery} placeholder={copy.search} />
+              </div>
+            ) : (
+              <div className="ml-auto hidden md:block" />
+            )}
             <StorePicker
               lang={lang}
               preferredStore={preferredStore}
@@ -286,6 +296,14 @@ export function PriceApp() {
             />
             <Button variant="outline" size="sm" onClick={toggleLang}>
               {lang === "zh" ? "EN" : "繁"}
+            </Button>
+            <Button
+              variant={view === "list" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setView("list")}
+            >
+              <ClipboardList data-icon="inline-start" />
+              <span className="hidden sm:inline">{copy.list}</span>
             </Button>
             <Button
               variant={view === "saved" ? "default" : "outline"}
@@ -297,9 +315,11 @@ export function PriceApp() {
               <span className="font-mono text-xs">{bookmarks?.bookmarks.length ?? 0}</span>
             </Button>
           </div>
-          <div className="border-t border-border/60 px-4 py-2 md:hidden">
-            <SearchBox query={query} setQuery={setQuery} placeholder={copy.search} />
-          </div>
+          {view === "browse" ? (
+            <div className="border-t border-border/60 px-4 py-2 md:hidden">
+              <SearchBox query={query} setQuery={setQuery} placeholder={copy.search} />
+            </div>
+          ) : null}
           {catalog ? (
             <div className="border-t border-border/60 px-4 py-1.5 text-[11px] text-muted-foreground">
               <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1">
@@ -321,13 +341,13 @@ export function PriceApp() {
         </header>
 
         <div className="mx-auto flex w-full max-w-7xl flex-1 gap-6 px-4 py-4 pb-24 md:pb-8">
-          {catalog ? (
+          {view === "browse" && catalog ? (
             <aside className="hidden w-56 shrink-0 md:block">
               <div className="sticky top-24 rounded-xl border border-border bg-card p-2">
                 <CategoryNav
                   catalog={catalog}
                   lang={lang}
-                  activeSlug={view === "browse" ? catSlug : null}
+                  activeSlug={catSlug}
                   onSelect={(slug) => {
                     setView("browse");
                     setCatSlug(slug);
@@ -335,11 +355,11 @@ export function PriceApp() {
                 />
               </div>
             </aside>
-          ) : (
+          ) : view === "browse" ? (
             <aside className="hidden w-56 shrink-0 md:block">
               <Skeleton className="h-[28rem] rounded-xl" />
             </aside>
-          )}
+          ) : null}
 
           <main className="min-w-0 flex-1">
             {error ? (
@@ -349,7 +369,18 @@ export function PriceApp() {
               </Alert>
             ) : null}
 
-            {!catalog && !error ? <LoadingState lang={lang} /> : null}
+            {view === "browse" && !catalog && !error ? <LoadingState lang={lang} /> : null}
+
+            {view === "list" && priceLog ? (
+              <MyList
+                lang={lang}
+                state={priceLog}
+                onChange={(next) => {
+                  setPriceLog(next);
+                  savePriceLog(next);
+                }}
+              />
+            ) : null}
 
             {catalog && view === "browse" ? (
               <BrowseView
@@ -410,9 +441,12 @@ export function PriceApp() {
         </div>
 
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 p-2 backdrop-blur md:hidden">
-          <div className="mx-auto grid max-w-md grid-cols-2 gap-2">
+          <div className="mx-auto grid max-w-md grid-cols-3 gap-1">
             <Button variant={view === "browse" ? "default" : "ghost"} onClick={() => setView("browse")}>
               {copy.browse}
+            </Button>
+            <Button variant={view === "list" ? "default" : "ghost"} onClick={() => setView("list")}>
+              {copy.list}
             </Button>
             <Button variant={view === "saved" ? "default" : "ghost"} onClick={() => setView("saved")}>
               {copy.saved}
