@@ -1,6 +1,8 @@
 import { uid } from "./bookmarks";
 import { STAPLES } from "./staples";
 import type { Localized } from "./types";
+import type { MeasureKind, UnitCode } from "./units";
+import { UNIT_LABEL } from "./units";
 
 const KEY = "hkfpi.pricelog.v1";
 
@@ -9,7 +11,16 @@ export type TrackedItem = {
   name: Localized;
   unit: Localized;
   group: string;
+  measure: MeasureKind;
+  defaultUnit: UnitCode;
   custom?: boolean;
+};
+
+export type LogLine = {
+  price: number;
+  qty?: number;
+  unit?: UnitCode;
+  note?: string;
 };
 
 export type PriceEntry = {
@@ -18,7 +29,10 @@ export type PriceEntry = {
   placeId: string;
   date: string;
   price: number;
+  qty?: number;
+  unit?: UnitCode;
   note?: string;
+  tripNote?: string;
 };
 
 export type CustomPlace = {
@@ -36,6 +50,16 @@ function canUseStorage() {
   return typeof window !== "undefined";
 }
 
+function hydrateItem(item: TrackedItem): TrackedItem {
+  const defaultUnit = item.defaultUnit || "catty";
+  return {
+    ...item,
+    measure: item.measure || "weight",
+    defaultUnit,
+    unit: item.unit || UNIT_LABEL[defaultUnit],
+  };
+}
+
 export function emptyLog(): PriceLogState {
   return { extras: [], places: [], entries: [] };
 }
@@ -47,7 +71,7 @@ export function loadPriceLog(): PriceLogState {
     if (!raw) return emptyLog();
     const parsed = JSON.parse(raw) as PriceLogState;
     return {
-      extras: Array.isArray(parsed.extras) ? parsed.extras : [],
+      extras: Array.isArray(parsed.extras) ? parsed.extras.map(hydrateItem) : [],
       places: Array.isArray(parsed.places) ? parsed.places : [],
       entries: Array.isArray(parsed.entries) ? parsed.entries : [],
     };
@@ -69,14 +93,17 @@ export function allTrackedItems(state: PriceLogState): TrackedItem[] {
 export function addCustomItem(
   state: PriceLogState,
   name: string,
-  unit: string,
+  measure: MeasureKind,
+  defaultUnit: UnitCode,
   group = "produce",
 ): PriceLogState {
   const item: TrackedItem = {
     id: `custom-${uid()}`,
     name: { en: name, zh: name },
-    unit: { en: unit || "each", zh: unit || "件" },
+    unit: UNIT_LABEL[defaultUnit],
     group,
+    measure,
+    defaultUnit,
     custom: true,
   };
   return { ...state, extras: [...state.extras, item] };
@@ -102,19 +129,23 @@ export function logTrip(
   state: PriceLogState,
   placeId: string,
   date: string,
-  prices: Record<string, number>,
-  note?: string,
+  lines: Record<string, LogLine>,
+  tripNote?: string,
 ): PriceLogState {
   const entries = [...state.entries];
-  for (const [itemId, price] of Object.entries(prices)) {
-    if (!Number.isFinite(price) || price <= 0) continue;
+  const shared = tripNote?.trim() || undefined;
+  for (const [itemId, line] of Object.entries(lines)) {
+    if (!Number.isFinite(line.price) || line.price <= 0) continue;
     entries.push({
       id: uid(),
       itemId,
       placeId,
       date,
-      price,
-      note: note || undefined,
+      price: line.price,
+      qty: line.qty && line.qty > 0 ? line.qty : undefined,
+      unit: line.unit,
+      note: line.note?.trim() || undefined,
+      tripNote: shared,
     });
   }
   return { ...state, entries };

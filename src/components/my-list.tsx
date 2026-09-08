@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ClipboardList, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ClipboardList, Mic, Plus, Search, Trash2 } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -41,11 +41,21 @@ import {
   latestByPlace,
   logTrip,
   removeCustomItem,
+  type LogLine,
+  type PriceEntry,
   type PriceLogState,
   type TrackedItem,
 } from "@/lib/price-log";
+import { useSpeech } from "@/hooks/use-speech";
 import { LOG_PLACES, PLACE_COLORS, STAPLE_GROUPS } from "@/lib/staples";
 import type { Lang } from "@/lib/types";
+import {
+  UNITS_BY_KIND,
+  formatUnitPrice,
+  unitLabel,
+  unitPrice,
+  type UnitCode,
+} from "@/lib/units";
 
 export function MyList({
   lang,
@@ -60,8 +70,18 @@ export function MyList({
   const [logging, setLogging] = useState(false);
   const [selected, setSelected] = useState<TrackedItem | null>(null);
   const [adding, setAdding] = useState(false);
+  const [query, setQuery] = useState("");
 
   const tripCount = new Set(state.entries.map((e) => `${e.date}|${e.placeId}`)).size;
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? items.filter((item) =>
+        [item.name.en, item.name.zh, item.unit.en, item.unit.zh, item.group]
+          .join(" ")
+          .toLowerCase()
+          .includes(q),
+      )
+    : items;
 
   return (
     <div className="space-y-5">
@@ -88,6 +108,16 @@ export function MyList({
         </div>
       </div>
 
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={lang === "zh" ? "搜尋菜心、雞胸、街市…" : "Search choy sum, chicken, wet market…"}
+          className="h-9 bg-card pl-8"
+        />
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-3">
         <Card size="sm">
           <CardHeader>
@@ -110,7 +140,7 @@ export function MyList({
       </div>
 
       {STAPLE_GROUPS.map((group) => {
-        const rows = items.filter((item) => item.group === group.id && !item.custom);
+        const rows = visible.filter((item) => item.group === group.id && !item.custom);
         if (rows.length === 0) return null;
         return (
           <section key={group.id} className="space-y-2">
@@ -131,13 +161,13 @@ export function MyList({
         );
       })}
 
-      {items.some((item) => item.custom) ? (
+      {visible.some((item) => item.custom) ? (
         <section className="space-y-2">
           <h2 className="text-sm font-medium text-muted-foreground">
             {lang === "zh" ? "自訂貨品" : "Added by you"}
           </h2>
           <div className="overflow-hidden rounded-xl border border-border bg-card">
-            {items
+            {visible
               .filter((item) => item.custom)
               .map((item, index, arr) => (
                 <ItemRow
@@ -157,7 +187,7 @@ export function MyList({
         open={logging}
         onOpenChange={setLogging}
         lang={lang}
-        items={items}
+        items={visible}
         state={state}
         onChange={onChange}
         onSave={(next) => {
@@ -176,6 +206,11 @@ export function MyList({
         onChange={onChange}
       />
       <AddItemDialog open={adding} onOpenChange={setAdding} lang={lang} state={state} onChange={onChange} />
+      {q && visible.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {lang === "zh" ? "清單裡沒有符合的貨品。" : "No items on your list match that search."}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -207,18 +242,14 @@ function ItemRow({
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{loc(lang, item.name)}</div>
         <div className="text-[11px] text-muted-foreground">{loc(lang, item.unit)}</div>
+        {mp?.note || wet?.note ? (
+          <div className="mt-0.5 truncate text-[11px] text-muted-foreground/90">
+            {mp?.note || wet?.note}
+          </div>
+        ) : null}
       </div>
-      <PriceChip
-        label={lang === "zh" ? "街市" : "Wet mkt"}
-        entry={wet}
-        lang={lang}
-      />
-      <PriceChip
-        label="MKT"
-        entry={mp}
-        lang={lang}
-        emphasize
-      />
+      <PriceChip label={lang === "zh" ? "街市" : "Wet mkt"} entry={wet} lang={lang} />
+      <PriceChip label="MKT" entry={mp} lang={lang} emphasize />
     </button>
   );
 }
@@ -230,18 +261,17 @@ function PriceChip({
   emphasize = false,
 }: {
   label: string;
-  entry?: { price: number; date: string };
+  entry?: PriceEntry;
   lang: Lang;
   emphasize?: boolean;
 }) {
+  const up = entry ? unitPrice(entry.price, entry.qty, entry.unit, lang) : null;
   return (
-    <div className={`min-w-[4.6rem] rounded-lg px-2 py-1.5 text-right ${emphasize ? "bg-primary/10" : "bg-muted/70"}`}>
+    <div className={`min-w-[4.8rem] rounded-lg px-2 py-1.5 text-right ${emphasize ? "bg-primary/10" : "bg-muted/70"}`}>
       <div className="text-[10px] tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className="font-mono text-sm tabular-nums">
-        {entry ? hkd(entry.price) : "—"}
-      </div>
+      <div className="font-mono text-sm tabular-nums">{entry ? hkd(entry.price) : "—"}</div>
       <div className="text-[10px] text-muted-foreground">
-        {entry ? formatDay(entry.date, lang) : lang === "zh" ? "未記" : "none"}
+        {up ? formatUnitPrice(up) : entry ? formatDay(entry.date, lang) : lang === "zh" ? "未記" : "none"}
       </div>
     </div>
   );
@@ -272,19 +302,38 @@ function LogShopSheet({
 }) {
   const [date, setDate] = useState(todayStamp);
   const [placeId, setPlaceId] = useState("JASONS");
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [lines, setLines] = useState<Record<string, { price: string; qty: string; unit: UnitCode; note: string }>>({});
+  const [tripNote, setTripNote] = useState("");
   const [newPlace, setNewPlace] = useState("");
+  const [filter, setFilter] = useState("");
 
   const places = [
     ...LOG_PLACES.map((p) => ({ id: p.id, label: loc(lang, p.name) })),
     ...state.places.map((p) => ({ id: p.id, label: p.name })),
   ];
 
+  function lineFor(item: TrackedItem) {
+    return lines[item.id] ?? { price: "", qty: "", unit: item.defaultUnit, note: "" };
+  }
+
+  function patchLine(
+    id: string,
+    item: TrackedItem,
+    patch: Partial<{ price: string; qty: string; unit: UnitCode; note: string }>,
+  ) {
+    setLines((prev) => {
+      const base = prev[id] ?? { price: "", qty: "", unit: item.defaultUnit, note: "" };
+      return { ...prev, [id]: { ...base, ...patch } };
+    });
+  }
+
   function reset() {
     setDate(todayStamp());
     setPlaceId("JASONS");
-    setValues({});
+    setLines({});
+    setTripNote("");
     setNewPlace("");
+    setFilter("");
   }
 
   return (
@@ -302,8 +351,8 @@ function LogShopSheet({
               <SheetTitle>{lang === "zh" ? "記錄今次購物" : "Log this shop"}</SheetTitle>
               <SheetDescription>
                 {lang === "zh"
-                  ? "只填你買了的貨。空白會略過。單位見每項旁邊。"
-                  : "Fill only what you bought. Blank rows are skipped."}
+                  ? "總價必填。數量＋單位可選，用來算每100克／100毫升／每件單價，方便街市斤數對超市包裝。"
+                  : "Total paid is enough. Add qty + unit to get a unit price (per 100g, 100ml, or piece) so a catty at the wet market compares with a supermarket pack."}
               </SheetDescription>
             </SheetHeader>
 
@@ -351,39 +400,108 @@ function LogShopSheet({
               </Button>
             </div>
 
-            <div className="mt-5 space-y-2">
-              {items.map((item) => (
-                <label
-                  key={item.id}
-                  className="grid grid-cols-[1fr_6.5rem] items-center gap-3 rounded-lg border border-border px-3 py-2.5"
-                >
-                  <span>
-                    <span className="block text-sm font-medium">{loc(lang, item.name)}</span>
-                    <span className="text-[11px] text-muted-foreground">{loc(lang, item.unit)}</span>
-                  </span>
-                  <Input
-                    inputMode="decimal"
-                    placeholder="$"
-                    value={values[item.id] ?? ""}
-                    onChange={(e) =>
-                      setValues((prev) => ({ ...prev, [item.id]: e.target.value }))
-                    }
-                    className="text-right font-mono"
-                  />
-                </label>
-              ))}
+            <div className="mt-4">
+              <DictationField
+                lang={lang}
+                value={tripNote}
+                onChange={setTripNote}
+                placeholder={lang === "zh" ? "今次備註，例如：街市貴、Market Place 有折扣" : "Quick trip note, e.g. wet market pricey, MP had an offer"}
+              />
+            </div>
+
+            <div className="relative mt-4">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder={lang === "zh" ? "篩選貨品…" : "Filter items…"}
+                className="h-8 pl-8"
+              />
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {items
+                .filter((item) => {
+                  const needle = filter.trim().toLowerCase();
+                  if (!needle) return true;
+                  return `${item.name.en} ${item.name.zh}`.toLowerCase().includes(needle);
+                })
+                .map((item) => {
+                  const row = lineFor(item);
+                  const priceN = Number.parseFloat(row.price.replace(/[^0-9.]/g, ""));
+                  const qtyN = Number.parseFloat(row.qty.replace(/[^0-9.]/g, ""));
+                  const up =
+                    Number.isFinite(priceN) && Number.isFinite(qtyN)
+                      ? unitPrice(priceN, qtyN, row.unit, lang)
+                      : null;
+                  return (
+                    <div key={item.id} className="rounded-xl border border-border px-3 py-3">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="min-w-0 text-sm font-medium">{loc(lang, item.name)}</div>
+                        {up ? (
+                          <div className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                            {formatUnitPrice(up)}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <Input
+                          inputMode="decimal"
+                          placeholder={lang === "zh" ? "總價 $" : "Total $"}
+                          value={row.price}
+                          onChange={(e) => patchLine(item.id, item, { price: e.target.value })}
+                          className="font-mono"
+                        />
+                        <Input
+                          inputMode="decimal"
+                          placeholder={lang === "zh" ? "數量" : "Qty"}
+                          value={row.qty}
+                          onChange={(e) => patchLine(item.id, item, { qty: e.target.value })}
+                          className="font-mono"
+                        />
+                        <select
+                          value={row.unit}
+                          onChange={(e) => patchLine(item.id, item, { unit: e.target.value as UnitCode })}
+                          className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+                        >
+                          {UNITS_BY_KIND[item.measure].map((code) => (
+                            <option key={code} value={code}>
+                              {unitLabel(code, lang)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="mt-2">
+                        <DictationField
+                          lang={lang}
+                          value={row.note}
+                          onChange={(text) => patchLine(item.id, item, { note: text })}
+                          placeholder={lang === "zh" ? "備註（可選）" : "Note (optional)"}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           </div>
           <div className="border-t border-border px-5 py-4 sm:px-6">
             <Button
               className="w-full"
               onClick={() => {
-                const prices: Record<string, number> = {};
-                for (const [id, raw] of Object.entries(values)) {
-                  const n = Number.parseFloat(raw.replace(/[^0-9.]/g, ""));
-                  if (Number.isFinite(n) && n > 0) prices[id] = n;
+                const payload: Record<string, LogLine> = {};
+                for (const item of items) {
+                  const row = lineFor(item);
+                  const price = Number.parseFloat(row.price.replace(/[^0-9.]/g, ""));
+                  if (!Number.isFinite(price) || price <= 0) continue;
+                  const qty = Number.parseFloat(row.qty.replace(/[^0-9.]/g, ""));
+                  payload[item.id] = {
+                    price,
+                    qty: Number.isFinite(qty) && qty > 0 ? qty : undefined,
+                    unit: row.unit,
+                    note: row.note,
+                  };
                 }
-                onSave(logTrip(state, placeId, date || todayStamp(), prices));
+                onSave(logTrip(state, placeId, date || todayStamp(), payload, tripNote));
               }}
             >
               {lang === "zh" ? "儲存這次購物" : "Save this shop"}
@@ -412,8 +530,21 @@ function ItemHistorySheet({
 }) {
   const history = item ? entriesForItem(state.entries, item.id) : [];
   const [price, setPrice] = useState("");
+  const [qty, setQty] = useState("");
+  const [unit, setUnit] = useState<UnitCode>(item?.defaultUnit ?? "catty");
+  const [note, setNote] = useState("");
   const [placeId, setPlaceId] = useState("JASONS");
   const [date, setDate] = useState(todayStamp);
+
+  useEffect(() => {
+    if (item) {
+      setUnit(item.defaultUnit);
+      setPrice("");
+      setQty("");
+      setNote("");
+      setDate(todayStamp());
+    }
+  }, [item?.id]);
 
   const chartData = useMemo(() => {
     const dates = [...new Set(history.map((e) => e.date))].sort();
@@ -447,7 +578,7 @@ function ItemHistorySheet({
                 <h3 className="mb-2 text-sm font-medium">
                   {lang === "zh" ? "快速記入" : "Quick log"}
                 </h3>
-                <div className="grid gap-2 sm:grid-cols-[1fr_1fr_5.5rem_auto]">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
                   <select
                     value={placeId}
@@ -462,22 +593,63 @@ function ItemHistorySheet({
                   </select>
                   <Input
                     inputMode="decimal"
-                    placeholder="$"
+                    placeholder={lang === "zh" ? "總價 $" : "Total $"}
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
                     className="font-mono"
                   />
-                  <Button
-                    onClick={() => {
-                      const n = Number.parseFloat(price.replace(/[^0-9.]/g, ""));
-                      if (!Number.isFinite(n) || n <= 0) return;
-                      onChange(logTrip(state, placeId, date || todayStamp(), { [item.id]: n }));
-                      setPrice("");
-                    }}
-                  >
-                    {lang === "zh" ? "記入" : "Log"}
-                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      inputMode="decimal"
+                      placeholder={lang === "zh" ? "數量" : "Qty"}
+                      value={qty}
+                      onChange={(e) => setQty(e.target.value)}
+                      className="font-mono"
+                    />
+                    <select
+                      value={unit}
+                      onChange={(e) => setUnit(e.target.value as UnitCode)}
+                      className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+                    >
+                      {UNITS_BY_KIND[item.measure].map((code) => (
+                        <option key={code} value={code}>
+                          {unitLabel(code, lang)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
+                <div className="mt-2">
+                  <DictationField
+                    lang={lang}
+                    value={note}
+                    onChange={setNote}
+                    placeholder={lang === "zh" ? "備註" : "Note"}
+                  />
+                </div>
+                <Button
+                  className="mt-2 w-full"
+                  onClick={() => {
+                    const n = Number.parseFloat(price.replace(/[^0-9.]/g, ""));
+                    if (!Number.isFinite(n) || n <= 0) return;
+                    const qn = Number.parseFloat(qty.replace(/[^0-9.]/g, ""));
+                    onChange(
+                      logTrip(state, placeId, date || todayStamp(), {
+                        [item.id]: {
+                          price: n,
+                          qty: Number.isFinite(qn) && qn > 0 ? qn : undefined,
+                          unit,
+                          note,
+                        },
+                      }),
+                    );
+                    setPrice("");
+                    setQty("");
+                    setNote("");
+                  }}
+                >
+                  {lang === "zh" ? "記入" : "Log"}
+                </Button>
               </section>
 
               <section className="mt-6">
@@ -541,27 +713,42 @@ function ItemHistorySheet({
                   </p>
                 ) : (
                   <ul className="space-y-2">
-                    {[...history].reverse().map((entry) => (
-                      <li
-                        key={entry.id}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
-                      >
-                        <div>
-                          <div className="text-sm">{placeLabel(entry.placeId, lang, state)}</div>
-                          <div className="text-[11px] text-muted-foreground">{entry.date}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm tabular-nums">{hkd(entry.price)}</span>
-                          <Button
-                            size="icon-xs"
-                            variant="ghost"
-                            onClick={() => onChange(deleteEntry(state, entry.id))}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      </li>
-                    ))}
+                    {[...history].reverse().map((entry) => {
+                      const up = unitPrice(entry.price, entry.qty, entry.unit, lang);
+                      return (
+                        <li
+                          key={entry.id}
+                          className="flex items-start justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm">{placeLabel(entry.placeId, lang, state)}</div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {entry.date}
+                              {entry.qty && entry.unit
+                                ? ` · ${entry.qty} ${unitLabel(entry.unit, lang)}`
+                                : ""}
+                              {up ? ` · ${formatUnitPrice(up)}` : ""}
+                            </div>
+                            {entry.note ? (
+                              <div className="mt-1 text-xs text-pretty text-foreground/80">{entry.note}</div>
+                            ) : null}
+                            {entry.tripNote ? (
+                              <div className="mt-0.5 text-[11px] text-muted-foreground">{entry.tripNote}</div>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="font-mono text-sm tabular-nums">{hkd(entry.price)}</span>
+                            <Button
+                              size="icon-xs"
+                              variant="ghost"
+                              onClick={() => onChange(deleteEntry(state, entry.id))}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </section>
@@ -601,7 +788,8 @@ function AddItemDialog({
   onChange: (next: PriceLogState) => void;
 }) {
   const [name, setName] = useState("");
-  const [unit, setUnit] = useState(lang === "zh" ? "斤" : "catty");
+  const [measure, setMeasure] = useState<"weight" | "volume" | "count">("weight");
+  const [unit, setUnit] = useState<UnitCode>("catty");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -610,28 +798,49 @@ function AddItemDialog({
           <DialogTitle>{lang === "zh" ? "加入貨品" : "Add an item"}</DialogTitle>
           <DialogDescription>
             {lang === "zh"
-              ? "用來追蹤清單上沒有的東西，例如某檔的豆腐。"
-              : "Track something that isn’t on the starter list."}
+              ? "重量用斤／克／磅；容量用毫升；件數用每個或一打。"
+              : "Weight: catty / g / lb. Volume: ml. Count: each or dozen."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-1.5">
             <Label htmlFor="item-name">{lang === "zh" ? "名稱" : "Name"}</Label>
-            <Input
-              id="item-name"
+            <DictationField
+              lang={lang}
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={setName}
               placeholder={lang === "zh" ? "例如：豆腐" : "e.g. tofu"}
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="item-unit">{lang === "zh" ? "單位" : "Unit"}</Label>
-            <Input
-              id="item-unit"
+            <Label>{lang === "zh" ? "計量" : "Measure"}</Label>
+            <select
+              value={measure}
+              onChange={(e) => {
+                const next = e.target.value as "weight" | "volume" | "count";
+                setMeasure(next);
+                setUnit(UNITS_BY_KIND[next][0]);
+              }}
+              className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+            >
+              <option value="weight">{lang === "zh" ? "重量" : "Weight"}</option>
+              <option value="volume">{lang === "zh" ? "容量（毫升）" : "Volume (ml)"}</option>
+              <option value="count">{lang === "zh" ? "件數" : "Count"}</option>
+            </select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>{lang === "zh" ? "預設單位" : "Default unit"}</Label>
+            <select
               value={unit}
-              onChange={(e) => setUnit(e.target.value)}
-              placeholder={lang === "zh" ? "斤 / 每個 / 盒" : "catty / each / pack"}
-            />
+              onChange={(e) => setUnit(e.target.value as UnitCode)}
+              className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+            >
+              {UNITS_BY_KIND[measure].map((code) => (
+                <option key={code} value={code}>
+                  {unitLabel(code, lang)}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
         <DialogFooter>
@@ -639,7 +848,7 @@ function AddItemDialog({
             onClick={() => {
               const trimmed = name.trim();
               if (!trimmed) return;
-              onChange(addCustomItem(state, trimmed, unit.trim() || "each"));
+              onChange(addCustomItem(state, trimmed, measure, unit));
               setName("");
               onOpenChange(false);
             }}
@@ -649,5 +858,44 @@ function AddItemDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DictationField({
+  lang,
+  value,
+  onChange,
+  placeholder,
+}: {
+  lang: Lang;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const { supported, listening, start, stop } = useSpeech(lang, (text) => {
+    onChange(value ? `${value.trim()} ${text}` : text);
+  });
+
+  return (
+    <div className="flex gap-2">
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="flex-1"
+      />
+      {supported ? (
+        <Button
+          type="button"
+          variant={listening ? "default" : "outline"}
+          size="icon"
+          onClick={() => (listening ? stop() : start())}
+          aria-label={lang === "zh" ? "語音輸入" : "Voice input"}
+          title={lang === "zh" ? "語音輸入" : "Voice input"}
+        >
+          <Mic className={listening ? "size-4 animate-pulse" : "size-4"} />
+        </Button>
+      ) : null}
+    </div>
   );
 }
