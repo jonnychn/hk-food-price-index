@@ -1,9 +1,12 @@
 import { todayStamp } from "./format";
+import { DEFAULT_STORE, SUPERMARKETS } from "./supermarkets";
 import type { Bookmark, BookmarkState, Product } from "./types";
 
 const BOOKMARK_KEY = "hkfpi.bookmarks.v1";
 const HISTORY_KEY = "hkfpi.history.v1";
 const LANG_KEY = "hkfpi.lang";
+const STORE_KEY = "hkfpi.store";
+const STORE_ONLY_KEY = "hkfpi.storeOnly";
 
 export const DEFAULT_FOLDER_ID = "watchlist";
 
@@ -92,6 +95,29 @@ export function loadLang(): "en" | "zh" {
 export function saveLang(lang: "en" | "zh") {
   if (!canUseStorage()) return;
   localStorage.setItem(LANG_KEY, lang);
+}
+
+export function loadStore() {
+  if (!canUseStorage()) return DEFAULT_STORE;
+  const value = localStorage.getItem(STORE_KEY);
+  return value && value in SUPERMARKETS ? value : DEFAULT_STORE;
+}
+
+export function saveStore(code: string) {
+  if (!canUseStorage()) return;
+  localStorage.setItem(STORE_KEY, code);
+}
+
+export function loadStoreOnly() {
+  if (!canUseStorage()) return true;
+  const value = localStorage.getItem(STORE_ONLY_KEY);
+  if (value === null) return true;
+  return value === "1";
+}
+
+export function saveStoreOnly(on: boolean) {
+  if (!canUseStorage()) return;
+  localStorage.setItem(STORE_ONLY_KEY, on ? "1" : "0");
 }
 
 export function bookmarkFor(state: BookmarkState, code: string): Bookmark | undefined {

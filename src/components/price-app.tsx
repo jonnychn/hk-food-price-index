@@ -5,6 +5,7 @@ import {
   Bookmark,
   BookmarkCheck,
   FolderPlus,
+  MapPin,
   Search,
   ShoppingBasket,
   Trash2,
@@ -32,18 +33,26 @@ import {
   loadBookmarks,
   loadHistory,
   loadLang,
+  loadStore,
+  loadStoreOnly,
   recordHistory,
   saveBookmarks,
   saveHistory,
   saveLang,
+  saveStore,
+  saveStoreOnly,
   uid,
   type HistoryMap,
 } from "@/lib/bookmarks";
-import { formatDate, hkd, loc, pct } from "@/lib/format";
-import { supermarketLabel } from "@/lib/supermarkets";
+import { formatFetchedAt, hkd, loc, pct } from "@/lib/format";
+import {
+  DEFAULT_STORE,
+  SUPERMARKET_ORDER,
+  supermarketLabel,
+} from "@/lib/supermarkets";
 import type { BookmarkState, Catalog, Lang, Product, Trends } from "@/lib/types";
 
-type SortKey = "cheap" | "spread" | "offers" | "name";
+type SortKey = "store" | "cheap" | "spread" | "offers" | "name";
 type View = "browse" | "saved";
 
 const PAGE_SIZE = 36;
@@ -55,7 +64,7 @@ export function PriceApp() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [catSlug, setCatSlug] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortKey>("cheap");
+  const [sort, setSort] = useState<SortKey>("store");
   const [view, setView] = useState<View>("browse");
   const [selected, setSelected] = useState<Product | null>(null);
   const [bookmarks, setBookmarks] = useState<BookmarkState | null>(null);
@@ -63,12 +72,16 @@ export function PriceApp() {
   const [activeFolder, setActiveFolder] = useState(DEFAULT_FOLDER_ID);
   const [page, setPage] = useState(1);
   const [folderName, setFolderName] = useState("");
+  const [preferredStore, setPreferredStore] = useState(DEFAULT_STORE);
+  const [storeOnly, setStoreOnly] = useState(true);
 
   useEffect(() => {
     setLang(loadLang());
     const stored = loadBookmarks();
     setBookmarks(stored);
     setHistory(loadHistory());
+    setPreferredStore(loadStore());
+    setStoreOnly(loadStoreOnly());
   }, []);
 
   useEffect(() => {
@@ -127,6 +140,7 @@ export function PriceApp() {
     const q = query.trim().toLowerCase();
     let list = catalog.products;
     if (catSlug) list = list.filter((p) => p.cat1Key && slugMatch(catalog, p, catSlug));
+    if (storeOnly) list = list.filter((p) => p.prices[preferredStore] != null);
     if (q) {
       list = list.filter((p) => {
         const hay = [
@@ -149,6 +163,14 @@ export function PriceApp() {
     }
     const sorted = [...list];
     sorted.sort((a, b) => {
+      if (sort === "store") {
+        const pa = a.prices[preferredStore];
+        const pb = b.prices[preferredStore];
+        if (pa == null && pb == null) return a.min - b.min;
+        if (pa == null) return 1;
+        if (pb == null) return -1;
+        return pa - pb;
+      }
       if (sort === "cheap") return a.min - b.min;
       if (sort === "spread") return b.spread - a.spread;
       if (sort === "offers") return b.offerCount - a.offerCount || a.min - b.min;
@@ -157,11 +179,21 @@ export function PriceApp() {
       return an.localeCompare(bn);
     });
     return sorted;
-  }, [catalog, query, catSlug, sort]);
+  }, [catalog, query, catSlug, sort, preferredStore, storeOnly]);
 
   useEffect(() => {
     setPage(1);
-  }, [query, catSlug, sort, view]);
+  }, [query, catSlug, sort, view, preferredStore, storeOnly]);
+
+  function changeStore(code: string) {
+    setPreferredStore(code);
+    saveStore(code);
+  }
+
+  function changeStoreOnly(on: boolean) {
+    setStoreOnly(on);
+    saveStoreOnly(on);
+  }
 
   const visible = filtered.slice(0, page * PAGE_SIZE);
   const indexDelta = useMemo(() => {
@@ -247,6 +279,11 @@ export function PriceApp() {
             <div className="ml-auto hidden min-w-0 flex-1 md:block md:max-w-md">
               <SearchBox query={query} setQuery={setQuery} placeholder={copy.search} />
             </div>
+            <StorePicker
+              lang={lang}
+              preferredStore={preferredStore}
+              onChange={changeStore}
+            />
             <Button variant="outline" size="sm" onClick={toggleLang}>
               {lang === "zh" ? "EN" : "繁"}
             </Button>
@@ -263,6 +300,24 @@ export function PriceApp() {
           <div className="border-t border-border/60 px-4 py-2 md:hidden">
             <SearchBox query={query} setQuery={setQuery} placeholder={copy.search} />
           </div>
+          {catalog ? (
+            <div className="border-t border-border/60 px-4 py-1.5 text-[11px] text-muted-foreground">
+              <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1">
+                <span>
+                  {lang === "zh" ? "價格擷取於" : "Prices fetched"}{" "}
+                  <span className="font-medium text-foreground/80">
+                    {formatFetchedAt(catalog.fetchedAt, lang)}
+                  </span>
+                </span>
+                {catalog.sourceModified ? (
+                  <span className="hidden sm:inline">
+                    · {lang === "zh" ? "消委會資料" : "Council file"}{" "}
+                    {formatFetchedAt(catalog.sourceModified, lang)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </header>
 
         <div className="mx-auto flex w-full max-w-7xl flex-1 gap-6 px-4 py-4 pb-24 md:pb-8">
@@ -313,6 +368,9 @@ export function PriceApp() {
                 bookmarks={bookmarks}
                 supermarketLabels={supermarketLabels}
                 indexDelta={indexDelta}
+                preferredStore={preferredStore}
+                storeOnly={storeOnly}
+                onStoreOnly={changeStoreOnly}
               />
             ) : null}
 
@@ -345,6 +403,7 @@ export function PriceApp() {
                 }}
                 onOpen={setSelected}
                 onUnsave={unsaveProduct}
+                preferredStore={preferredStore}
               />
             ) : null}
           </main>
@@ -377,6 +436,8 @@ export function PriceApp() {
           onUnsave={() => {
             if (selected) unsaveProduct(selected.code);
           }}
+          preferredStore={preferredStore}
+          fetchedAt={catalog?.fetchedAt ?? null}
         />
       </div>
     </TooltipProvider>
@@ -442,6 +503,9 @@ function BrowseView({
   bookmarks,
   supermarketLabels,
   indexDelta,
+  preferredStore,
+  storeOnly,
+  onStoreOnly,
 }: {
   catalog: Catalog;
   trends: Trends | null;
@@ -458,6 +522,9 @@ function BrowseView({
   bookmarks: BookmarkState | null;
   supermarketLabels: Record<string, string>;
   indexDelta: { index: number; change: number; from: string; to: string } | null;
+  preferredStore: string;
+  storeOnly: boolean;
+  onStoreOnly: (on: boolean) => void;
 }) {
   const activeCat = catalog.categories.find((c) => c.slug === catSlug);
   return (
@@ -546,37 +613,52 @@ function BrowseView({
         <div className="text-sm text-muted-foreground">
           {activeCat ? loc(lang, activeCat.short) : lang === "zh" ? "全部類別" : "All categories"}
           <span className="ml-2 font-mono">{filteredCount}</span>
-          {catalog.sourceModified ? (
-            <span className="ml-2 hidden sm:inline">
-              · {lang === "zh" ? "資料更新" : "Updated"} {formatDate(catalog.sourceModified, lang)}
-            </span>
-          ) : null}
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className={
-              "inline-flex h-7 items-center rounded-lg border border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted"
-            }
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={storeOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => onStoreOnly(!storeOnly)}
           >
-            {sortLabel(sort, lang)}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-              <DropdownMenuRadioItem value="cheap">
-                {lang === "zh" ? "最低價" : "Lowest price"}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="spread">
-                {lang === "zh" ? "價差最大" : "Biggest spread"}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="offers">
-                {lang === "zh" ? "最多優惠" : "Most offers"}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="name">
-                {lang === "zh" ? "名稱" : "Name"}
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            {storeOnly
+              ? lang === "zh"
+                ? `只看${supermarketLabel(preferredStore, lang)}`
+                : `Only ${supermarketLabel(preferredStore, lang)}`
+              : lang === "zh"
+                ? "所有超市"
+                : "All stores"}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={
+                "inline-flex h-7 items-center rounded-lg border border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted"
+              }
+            >
+              {sortLabel(sort, lang, preferredStore)}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+                <DropdownMenuRadioItem value="store">
+                  {lang === "zh"
+                    ? `${supermarketLabel(preferredStore, lang)}價錢`
+                    : `${supermarketLabel(preferredStore, lang)} price`}
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="cheap">
+                  {lang === "zh" ? "全港最低價" : "Lowest anywhere"}
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="spread">
+                  {lang === "zh" ? "價差最大" : "Biggest spread"}
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="offers">
+                  {lang === "zh" ? "最多優惠" : "Most offers"}
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="name">
+                  {lang === "zh" ? "名稱" : "Name"}
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <ProductGrid
@@ -584,6 +666,7 @@ function BrowseView({
         lang={lang}
         bookmarks={bookmarks}
         onOpen={onOpen}
+        preferredStore={preferredStore}
       />
       {hasMore ? (
         <div className="flex justify-center">
@@ -609,6 +692,7 @@ function SavedView({
   onDeleteFolder,
   onOpen,
   onUnsave,
+  preferredStore,
 }: {
   lang: Lang;
   catalog: Catalog;
@@ -622,6 +706,7 @@ function SavedView({
   onDeleteFolder: (id: string) => void;
   onOpen: (product: Product) => void;
   onUnsave: (code: string) => void;
+  preferredStore: string;
 }) {
   const items = bookmarks.bookmarks.filter((b) => b.folderId === activeFolder);
   const products = items
@@ -641,8 +726,12 @@ function SavedView({
         totals[code] = row;
       }
     }
-    return Object.entries(totals).sort((a, b) => a[1].sum - b[1].sum);
-  }, [products]);
+    return Object.entries(totals).sort((a, b) => {
+      if (a[0] === preferredStore) return -1;
+      if (b[0] === preferredStore) return 1;
+      return a[1].sum - b[1].sum;
+    });
+  }, [products, preferredStore]);
 
   return (
     <div className="space-y-4">
@@ -700,9 +789,14 @@ function SavedView({
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             {storeTotals.map(([code, row]) => (
-              <Badge key={code} variant="secondary">
+              <Badge key={code} variant={code === preferredStore ? "default" : "secondary"}>
                 {supermarketLabel(code, lang)} {hkd(row.sum)}
                 <span className="ml-1 opacity-70">({row.count})</span>
+                {code === preferredStore
+                  ? lang === "zh"
+                    ? " · 你的超市"
+                    : " · yours"
+                  : ""}
               </Badge>
             ))}
           </CardContent>
@@ -720,7 +814,9 @@ function SavedView({
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {products.map(({ product, bookmark }) => {
-            const delta = product.min - bookmark.savedMin;
+            const storePrice = product.prices[preferredStore];
+            const compare = storePrice ?? product.min;
+            const delta = compare - bookmark.savedMin;
             return (
               <button
                 key={product.code}
@@ -747,7 +843,9 @@ function SavedView({
                   </Button>
                 </div>
                 <div className="mt-3 flex items-baseline justify-between">
-                  <span className="font-mono text-lg tabular-nums">{hkd(product.min)}</span>
+                  <span className="font-mono text-lg tabular-nums">
+                    {storePrice != null ? hkd(storePrice) : hkd(product.min)}
+                  </span>
                   <span
                     className={`text-xs font-medium ${
                       delta < 0 ? "text-emerald-700" : delta > 0 ? "text-red-700" : "text-muted-foreground"
@@ -759,6 +857,13 @@ function SavedView({
                         : "Same as saved"
                       : `${delta > 0 ? "+" : ""}${hkd(delta)}`}
                   </span>
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {storePrice != null
+                    ? supermarketLabel(preferredStore, lang)
+                    : lang === "zh"
+                      ? `此店沒有 · 最低 ${hkd(product.min)}`
+                      : `Not at your store · lowest ${hkd(product.min)}`}
                 </div>
               </button>
             );
@@ -777,11 +882,13 @@ function ProductGrid({
   lang,
   bookmarks,
   onOpen,
+  preferredStore,
 }: {
   products: Product[];
   lang: Lang;
   bookmarks: BookmarkState | null;
   onOpen: (product: Product) => void;
+  preferredStore: string;
 }) {
   if (products.length === 0) {
     return (
@@ -793,10 +900,14 @@ function ProductGrid({
     );
   }
 
+  const storeName = supermarketLabel(preferredStore, lang);
+
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {products.map((product) => {
         const saved = bookmarks ? Boolean(bookmarkFor(bookmarks, product.code)) : false;
+        const storePrice = product.prices[preferredStore];
+        const extra = storePrice != null ? storePrice - product.min : null;
         const cheapest = Object.entries(product.prices).find(([, v]) => v === product.min)?.[0];
         return (
           <button
@@ -810,25 +921,48 @@ function ProductGrid({
                 <div className="truncate text-xs text-muted-foreground">{loc(lang, product.brand)}</div>
                 <div className="text-sm font-medium text-balance">{loc(lang, product.name)}</div>
               </div>
-              {saved ? <BookmarkCheck className="size-4 shrink-0 text-primary" /> : <Bookmark className="size-4 shrink-0 text-muted-foreground" />}
+              {saved ? (
+                <BookmarkCheck className="size-4 shrink-0 text-primary" />
+              ) : (
+                <Bookmark className="size-4 shrink-0 text-muted-foreground" />
+              )}
             </div>
             <div className="mt-2 text-[11px] text-muted-foreground">
               {loc(lang, product.cat2)} · {loc(lang, product.cat3)}
             </div>
             <div className="mt-3 flex items-end justify-between gap-2">
               <div>
-                <div className="font-mono text-lg font-medium tabular-nums">{hkd(product.min)}</div>
-                {product.spread > 0 ? (
-                  <div className="text-[11px] text-muted-foreground">
-                    {lang === "zh" ? "最高" : "up to"} {hkd(product.max)}
-                  </div>
-                ) : null}
+                {storePrice != null ? (
+                  <>
+                    <div className="font-mono text-lg font-medium tabular-nums">{hkd(storePrice)}</div>
+                    <div className="text-[11px] text-muted-foreground">{storeName}</div>
+                    {extra != null && extra > 0 && cheapest ? (
+                      <div className="text-[11px] text-amber-800">
+                        {lang === "zh"
+                          ? `${supermarketLabel(cheapest, lang)}平 ${hkd(extra)}`
+                          : `${hkd(extra)} cheaper at ${supermarketLabel(cheapest, lang)}`}
+                      </div>
+                    ) : extra === 0 ? (
+                      <div className="text-[11px] text-emerald-700">
+                        {lang === "zh" ? "已是最低" : "Lowest price"}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm font-medium text-muted-foreground">
+                      {lang === "zh" ? `${storeName}沒有` : `Not at ${storeName}`}
+                    </div>
+                    <div className="font-mono text-sm tabular-nums text-muted-foreground">
+                      {lang === "zh" ? "最低" : "lowest"} {hkd(product.min)}
+                    </div>
+                  </>
+                )}
               </div>
               <div className="flex flex-col items-end gap-1">
-                {cheapest ? (
-                  <Badge variant="secondary">{supermarketLabel(cheapest, lang)}</Badge>
-                ) : null}
-                {product.offerCount > 0 ? (
+                {product.offers[preferredStore] ? (
+                  <Badge variant="outline">{lang === "zh" ? "本店優惠" : "Store offer"}</Badge>
+                ) : product.offerCount > 0 ? (
                   <Badge variant="outline">
                     {product.offerCount} {lang === "zh" ? "優惠" : "offers"}
                   </Badge>
@@ -842,8 +976,43 @@ function ProductGrid({
   );
 }
 
-function sortLabel(sort: SortKey, lang: Lang) {
-  if (sort === "cheap") return lang === "zh" ? "排序：最低價" : "Sort: lowest";
+function StorePicker({
+  lang,
+  preferredStore,
+  onChange,
+}: {
+  lang: Lang;
+  preferredStore: string;
+  onChange: (code: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="inline-flex h-8 max-w-[9.5rem] items-center gap-1 truncate rounded-lg border border-border bg-background px-2 text-xs font-medium hover:bg-muted sm:max-w-none sm:px-2.5 sm:text-[0.8rem]"
+      >
+        <MapPin className="size-3.5 shrink-0" />
+        <span className="truncate">{supermarketLabel(preferredStore, lang)}</span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuRadioGroup value={preferredStore} onValueChange={onChange}>
+          {SUPERMARKET_ORDER.map((code) => (
+            <DropdownMenuRadioItem key={code} value={code}>
+              {supermarketLabel(code, lang)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function sortLabel(sort: SortKey, lang: Lang, preferredStore: string) {
+  if (sort === "store") {
+    return lang === "zh"
+      ? `排序：${supermarketLabel(preferredStore, lang)}`
+      : `Sort: ${supermarketLabel(preferredStore, lang)}`;
+  }
+  if (sort === "cheap") return lang === "zh" ? "排序：全港最低" : "Sort: lowest anywhere";
   if (sort === "spread") return lang === "zh" ? "排序：價差" : "Sort: spread";
   if (sort === "offers") return lang === "zh" ? "排序：優惠" : "Sort: offers";
   return lang === "zh" ? "排序：名稱" : "Sort: name";

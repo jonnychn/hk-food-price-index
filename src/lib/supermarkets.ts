@@ -37,8 +37,23 @@ export const SUPERMARKET_COLORS: Record<string, string> = {
   SASA: "#db2777",
 };
 
+export const DEFAULT_STORE = "JASONS";
+
 export function supermarketLabel(code: string, lang: "en" | "zh") {
   const row = SUPERMARKETS[code];
   if (!row) return code;
   return lang === "zh" ? row.zh : row.en;
+}
+
+export function orderedStoreCodes(preferred: string, prices: Record<string, number>) {
+  const known = SUPERMARKET_ORDER.filter(
+    (code) => code !== preferred && prices[code] != null,
+  );
+  const extra = Object.keys(prices).filter(
+    (code) =>
+      code !== preferred &&
+      !SUPERMARKET_ORDER.includes(code as (typeof SUPERMARKET_ORDER)[number]),
+  );
+  const first = prices[preferred] != null ? [preferred] : [];
+  return [...first, ...known, ...extra];
 }

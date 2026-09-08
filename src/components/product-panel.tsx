@@ -29,8 +29,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { DEFAULT_FOLDER_ID, uid, type HistoryPoint } from "@/lib/bookmarks";
-import { formatDay, hkd, loc } from "@/lib/format";
-import { SUPERMARKET_COLORS, SUPERMARKET_ORDER, supermarketLabel } from "@/lib/supermarkets";
+import { formatDay, formatFetchedAt, hkd, loc } from "@/lib/format";
+import {
+  SUPERMARKET_COLORS,
+  orderedStoreCodes,
+  supermarketLabel,
+} from "@/lib/supermarkets";
 import type { BookmarkState, Lang, Product } from "@/lib/types";
 
 export function ProductSheet({
@@ -42,6 +46,8 @@ export function ProductSheet({
   history,
   onSave,
   onUnsave,
+  preferredStore,
+  fetchedAt,
 }: {
   product: Product | null;
   lang: Lang;
@@ -51,76 +57,117 @@ export function ProductSheet({
   history: HistoryPoint[];
   onSave: (folderId: string) => void;
   onUnsave: () => void;
+  preferredStore: string;
+  fetchedAt: string | null;
 }) {
   const [saving, setSaving] = useState(false);
   const bookmark = product
     ? bookmarkState.bookmarks.find((b) => b.code === product.code)
     : undefined;
+  const storePrice = product?.prices[preferredStore];
+  const storeName = supermarketLabel(preferredStore, lang);
+  const extra =
+    storePrice != null && product ? storePrice - product.min : null;
 
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
+        <SheetContent
+          side="right"
+          className="w-full gap-0 overflow-hidden p-0 sm:max-w-lg"
+        >
           {product ? (
-            <div className="flex flex-col gap-5">
-              <SheetHeader className="pr-8 text-left">
-                <SheetTitle className="text-balance text-lg">
-                  {loc(lang, product.brand)} {loc(lang, product.name)}
-                </SheetTitle>
-                <SheetDescription>
-                  {loc(lang, product.cat1)} · {loc(lang, product.cat2)} · {loc(lang, product.cat3)}
-                </SheetDescription>
-              </SheetHeader>
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto pt-5 pb-4 pl-5 pr-14 sm:pl-6 sm:pr-14">
+                <SheetHeader className="gap-1 p-0 text-left">
+                  <SheetTitle className="text-balance text-lg leading-snug">
+                    {loc(lang, product.brand)} {loc(lang, product.name)}
+                  </SheetTitle>
+                  <SheetDescription className="text-pretty">
+                    {loc(lang, product.cat2)} · {loc(lang, product.cat3)}
+                  </SheetDescription>
+                  {fetchedAt ? (
+                    <p className="pt-1 text-xs text-muted-foreground">
+                      {lang === "zh" ? "價格擷取於" : "Prices fetched"}{" "}
+                      {formatFetchedAt(fetchedAt, lang)}
+                    </p>
+                  ) : null}
+                </SheetHeader>
 
-              <div className="grid grid-cols-3 gap-2">
-                <Stat label={lang === "zh" ? "最低" : "Lowest"} value={hkd(product.min)} />
-                <Stat label={lang === "zh" ? "平均" : "Average"} value={hkd(product.avg)} />
-                <Stat label={lang === "zh" ? "最高" : "Highest"} value={hkd(product.max)} />
+                <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <Stat
+                    label={lang === "zh" ? `在${storeName}` : `At ${storeName}`}
+                    value={storePrice != null ? hkd(storePrice) : lang === "zh" ? "缺貨" : "Not stocked"}
+                    emphasize
+                  />
+                  <Stat label={lang === "zh" ? "全港最低" : "Lowest"} value={hkd(product.min)} />
+                  <Stat
+                    label={lang === "zh" ? "價差" : "Vs lowest"}
+                    value={
+                      extra == null
+                        ? "—"
+                        : extra === 0
+                          ? lang === "zh"
+                            ? "已是最低"
+                            : "Already lowest"
+                          : `+${hkd(extra)}`
+                    }
+                  />
+                </div>
+
+                <section className="mt-6">
+                  <h3 className="mb-3 text-sm font-medium">
+                    {lang === "zh" ? "超市格價" : "Supermarket prices"}
+                  </h3>
+                  <SupermarketBars
+                    product={product}
+                    lang={lang}
+                    preferredStore={preferredStore}
+                  />
+                </section>
+
+                {product.offerCount > 0 ? (
+                  <section className="mt-6">
+                    <h3 className="mb-3 text-sm font-medium">
+                      {lang === "zh" ? "優惠" : "Offers"}
+                    </h3>
+                    <ul className="space-y-2">
+                      {Object.entries(product.offers).map(([code, text]) => (
+                        <li
+                          key={code}
+                          className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm"
+                        >
+                          <div className="text-xs font-medium text-muted-foreground">
+                            {supermarketLabel(code, lang)}
+                            {code === preferredStore
+                              ? lang === "zh"
+                                ? " · 你的超市"
+                                : " · your store"
+                              : ""}
+                          </div>
+                          <div className="mt-0.5 break-words">{text}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                <section className="mt-6 mb-2">
+                  <h3 className="mb-3 text-sm font-medium">
+                    {lang === "zh" ? "你的價格紀錄" : "Your tracked prices"}
+                  </h3>
+                  <PersonalTrend history={history} lang={lang} current={product} />
+                </section>
               </div>
 
-              <section>
-                <h3 className="mb-3 text-sm font-medium">
-                  {lang === "zh" ? "超市格價" : "Supermarket prices"}
-                </h3>
-                <SupermarketBars product={product} lang={lang} />
-              </section>
-
-              {product.offerCount > 0 ? (
-                <section>
-                  <h3 className="mb-3 text-sm font-medium">
-                    {lang === "zh" ? "優惠" : "Offers"}
-                  </h3>
-                  <ul className="space-y-2">
-                    {Object.entries(product.offers).map(([code, text]) => (
-                      <li
-                        key={code}
-                        className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
-                      >
-                        <div className="text-xs font-medium text-muted-foreground">
-                          {supermarketLabel(code, lang)}
-                        </div>
-                        {text}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              <section>
-                <h3 className="mb-3 text-sm font-medium">
-                  {lang === "zh" ? "你的價格紀錄" : "Your tracked prices"}
-                </h3>
-                <PersonalTrend history={history} lang={lang} current={product} />
-              </section>
-
-              <div className="flex gap-2 pb-6">
+              <div className="border-t border-border bg-popover px-5 py-4 sm:px-6">
                 {bookmark ? (
-                  <Button variant="outline" className="flex-1" onClick={onUnsave}>
+                  <Button variant="outline" className="w-full" onClick={onUnsave}>
                     <BookmarkCheck data-icon="inline-start" />
                     {lang === "zh" ? "已收藏 · 移除" : "Saved · Remove"}
                   </Button>
                 ) : (
-                  <Button className="flex-1" onClick={() => setSaving(true)}>
+                  <Button className="w-full" onClick={() => setSaving(true)}>
                     <Bookmark data-icon="inline-start" />
                     {lang === "zh" ? "收藏到資料夾" : "Save to folder"}
                   </Button>
@@ -145,36 +192,65 @@ export function ProductSheet({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({
+  label,
+  value,
+  emphasize = false,
+}: {
+  label: string;
+  value: string;
+  emphasize?: boolean;
+}) {
   return (
-    <div className="rounded-xl bg-muted/60 px-3 py-2">
-      <div className="text-[11px] tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className="font-mono text-base font-medium tabular-nums">{value}</div>
+    <div
+      className={`rounded-xl px-3 py-2.5 ${
+        emphasize ? "bg-primary/10 ring-1 ring-primary/20" : "bg-muted/60"
+      }`}
+    >
+      <div className="text-[11px] leading-tight tracking-wide text-muted-foreground uppercase">
+        {label}
+      </div>
+      <div className="mt-1 font-mono text-base font-medium break-words tabular-nums">{value}</div>
     </div>
   );
 }
 
-function SupermarketBars({ product, lang }: { product: Product; lang: Lang }) {
+function SupermarketBars({
+  product,
+  lang,
+  preferredStore,
+}: {
+  product: Product;
+  lang: Lang;
+  preferredStore: string;
+}) {
   const max = product.max || 1;
-  const known = SUPERMARKET_ORDER.filter((code) => product.prices[code] != null);
-  const extra = Object.keys(product.prices).filter(
-    (code) => !SUPERMARKET_ORDER.includes(code as (typeof SUPERMARKET_ORDER)[number]),
-  );
-  const rows = [...known, ...extra];
+  const rows = orderedStoreCodes(preferredStore, product.prices);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3.5">
       {rows.map((code) => {
         const price = product.prices[code];
         const cheapest = price === product.min;
+        const mine = code === preferredStore;
         return (
-          <div key={code}>
-            <div className="mb-1 flex items-baseline justify-between gap-2">
-              <span className="text-sm font-medium">{supermarketLabel(code, lang)}</span>
-              <span className="font-mono text-sm tabular-nums">
+          <div
+            key={code}
+            className={mine ? "rounded-xl bg-primary/10 px-3 py-2.5 ring-1 ring-primary/20" : ""}
+          >
+            <div className="mb-1 flex items-baseline justify-between gap-3">
+              <span className="min-w-0 text-sm font-medium">
+                {supermarketLabel(code, lang)}
+                {mine ? (
+                  <span className="ml-1.5 text-[11px] font-normal text-primary">
+                    {lang === "zh" ? "你的超市" : "your store"}
+                  </span>
+                ) : null}
+              </span>
+              <span className="shrink-0 font-mono text-sm tabular-nums">
                 {hkd(price)}
                 {cheapest ? (
-                  <span className="ml-2 text-[11px] font-sans font-medium text-emerald-700">
+                  <span className="ml-2 font-sans text-[11px] font-medium text-emerald-700">
                     {lang === "zh" ? "最平" : "lowest"}
                   </span>
                 ) : null}
@@ -190,7 +266,9 @@ function SupermarketBars({ product, lang }: { product: Product; lang: Lang }) {
               />
             </div>
             {product.offers[code] ? (
-              <p className="mt-1 text-xs text-muted-foreground">{product.offers[code]}</p>
+              <p className="mt-1.5 text-xs leading-snug break-words text-muted-foreground">
+                {product.offers[code]}
+              </p>
             ) : null}
           </div>
         );
